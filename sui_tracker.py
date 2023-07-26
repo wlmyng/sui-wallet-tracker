@@ -94,6 +94,15 @@ def read_csv(filename: str) -> List[CsvInput]:
         reader = csv.DictReader(f)
         return [CsvInput.parse_obj(row) for row in reader]        
 
+def process_row(args, row: CsvInput):
+    print(f"Processing {row.address}")        
+    liquid_balance = get_balance(args.rpc_url, row.address).totalBalance
+    stakes = get_stakes(args.rpc_url, row.address)
+    result = calculate_stake_and_reward(stakes)
+    
+    rows = build_rows(row.address, row.category, liquid_balance, result.total_principal, result.total_estimated_reward)
+    return rows
+
 def main():    
     parser = argparse.ArgumentParser()
     parser.add_argument("--rpc-url", type=str, help="RPC URL to use", default="https://fullnode.mainnet.sui.io:443")    
@@ -103,12 +112,7 @@ def main():
     input_data = read_csv(args.filename)
     output = []
     for row in input_data:
-        print(f"Processing {row.address}")        
-        liquid_balance = get_balance(args.rpc_url, row.address).totalBalance        
-        stakes = get_stakes(args.rpc_url, row.address)
-        result = calculate_stake_and_reward(stakes)
-        
-        rows = build_rows(row.address, row.category, liquid_balance, result.total_principal, result.total_estimated_reward)
+        rows = process_row(args, row)
         output.extend(rows)
     
     with open("output.csv", "w") as f:
