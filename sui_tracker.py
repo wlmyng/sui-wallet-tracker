@@ -66,7 +66,7 @@ def get_stakes(url, owner):
 
     headers = {'content-type': 'application/json'}
     response = requests.post(url, data=json.dumps(payload), headers=headers).json()
-    data = response['result']
+    data = response['result']    
     return GetStakesResult(__root__=[Validator(**v) for v in data])
 
 def calculate_stake_and_reward(get_stakes_result: GetStakesResult) -> StakeAndReward:
@@ -75,12 +75,16 @@ def calculate_stake_and_reward(get_stakes_result: GetStakesResult) -> StakeAndRe
     An address may stake at multiple validators.
     For each validator, there may be multiple stakes
     """    
+    total_stakes = 0
     total_principal = 0
     total_estimated_reward = 0
     for validator in get_stakes_result:
         for stake in validator.stakes:
+            print(stake)
+            total_stakes += 1
             total_principal += int(stake.principal)
             total_estimated_reward += int(stake.estimatedReward)            
+    print(total_stakes)
     return StakeAndReward(total_principal=total_principal, total_estimated_reward=total_estimated_reward)
 
 def build_rows(address, name, liquid, staked, reward):
