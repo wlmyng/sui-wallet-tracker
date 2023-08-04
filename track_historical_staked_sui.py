@@ -7,46 +7,6 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 import os
 
-@lru_cache(maxsize=128)
-def query_transaction_blocks(filter_type, address, url='https://fullnode.testnet.sui.io:443', cursor=None, limit=1000, descending_order=False):
-    query = {
-        "filter": {
-            filter_type: address,            
-        },
-        "options": {
-            "showInput": True,
-            "showRawInput": False,
-            "showEffects": True,
-            "showEvents": True,
-            "showObjectChanges": True,
-            "showBalanceChanges": True
-        }
-    }
-
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "suix_queryTransactionBlocks",
-        "params": [query, cursor, limit, descending_order]
-    }            
-    headers = {'content-type': 'application/json'}
-    response = requests.post(url, data=json.dumps(payload), headers=headers).json()    
-    transactions = []
-
-    while response:    
-        data = response['result']['data']    
-        transactions.extend(data)        
-        cursor = response['result']['nextCursor']
-        has_next_page = response['result']['hasNextPage']
-        if has_next_page:
-            params = [query, cursor, limit, descending_order]
-            payload["params"] = params        
-            response = requests.post(url, data=json.dumps(payload), headers=headers).json()
-        else:
-            break
-
-    return transactions
-
 class DeletedObject(BaseModel):
     digest: str
     object_id: str = Field(..., alias="objectId")
@@ -100,6 +60,56 @@ class StakedSuiAtEpoch(BaseModel):
     object_id: str
     version: int
 
+class RewardsForStakedSui(BaseModel):
+    object_id: str = Field(..., alias="objectId")
+    version: str
+    stake_activation_epoch: int
+    principal: float
+    estimated_rewards: float
+    rate_at_activation: float
+    rate_at_target: float
+    validator_id: str
+    
+@lru_cache(maxsize=128)
+def query_transaction_blocks(filter_type, address, url='https://fullnode.testnet.sui.io:443', cursor=None, limit=1000, descending_order=False):
+    query = {
+        "filter": {
+            filter_type: address,            
+        },
+        "options": {
+            "showInput": True,
+            "showRawInput": False,
+            "showEffects": True,
+            "showEvents": True,
+            "showObjectChanges": True,
+            "showBalanceChanges": True
+        }
+    }
+
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "suix_queryTransactionBlocks",
+        "params": [query, cursor, limit, descending_order]
+    }            
+    headers = {'content-type': 'application/json'}
+    response = requests.post(url, data=json.dumps(payload), headers=headers).json()    
+    transactions = []
+
+    while response:    
+        data = response['result']['data']    
+        transactions.extend(data)        
+        cursor = response['result']['nextCursor']
+        has_next_page = response['result']['hasNextPage']
+        if has_next_page:
+            params = [query, cursor, limit, descending_order]
+            payload["params"] = params        
+            response = requests.post(url, data=json.dumps(payload), headers=headers).json()
+        else:
+            break
+
+    return transactions
+
 def get_existing_objects_at_epoch(objs_by_obj_id: Dict[str, OrganizedByObjectId], epoch) -> List[StakedSuiAtEpoch]:        
     existing_objects = []
     for object_id, obj in objs_by_obj_id.items():        
@@ -112,6 +122,18 @@ def get_existing_objects_at_epoch(objs_by_obj_id: Dict[str, OrganizedByObjectId]
                             version = mutation_version                
             existing_objects.append(StakedSuiAtEpoch(object_id=object_id, version=version))                                        
     return existing_objects
+
+def chunked_requests(request: List[Any], chunk_size=50):
+    """Yield successive chunks from the request."""
+    for i in range(0, len(request), chunk_size):
+        yield request[i:i + chunk_size]
+
+def find_closest(numbers, target):
+    closest = None
+    for num in numbers:
+        if num <= target and (closest is None or abs(num - target) < abs(closest - target)):
+            closest = num
+    return closest
 
 def multi_get_objects(request: List[StakedSuiAtEpoch], url='https://fullnode.mainnet.sui.io:443'):
     payload = {
@@ -133,11 +155,6 @@ def multi_get_objects(request: List[StakedSuiAtEpoch], url='https://fullnode.mai
     headers = {'content-type': 'application/json'}
     response = requests.post(url, data=json.dumps(payload), headers=headers).json()
     return response
-
-def chunked_requests(request: List[Any], chunk_size=50):
-    """Yield successive chunks from the request."""
-    for i in range(0, len(request), chunk_size):
-        yield request[i:i + chunk_size]
 
 def try_multi_get_past_objects(request: List[StakedSuiAtEpoch], url='https://fullnode.mainnet.sui.io:443'):
     final_result = []
@@ -166,7 +183,6 @@ def try_multi_get_past_objects(request: List[StakedSuiAtEpoch], url='https://ful
         response = requests.post(url, data=json.dumps(payload), headers=headers).json()
         final_result.extend(response['result'])
     return final_result
-
 
 @lru_cache(maxsize=128)
 def get_sui_system_state(url='https://fullnode.mainnet.sui.io:443'):
@@ -212,14 +228,6 @@ def get_object(object_id, url='https://fullnode.mainnet.sui.io:443'):
     response = requests.post(url, data=json.dumps(payload), headers=headers).json()
     return response['result']['data']
 
-def find_closest(numbers, target):
-    closest = None
-    for num in numbers:
-        if num <= target and (closest is None or abs(num - target) < abs(closest - target)):
-            closest = num
-    return closest
-
-# made from misc.py -> query_validator_epoch_info_events
 def query_validator_epoch_info_events(url):
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
     events = []
@@ -250,18 +258,6 @@ def query_validator_epoch_info_events(url):
         else:
             break    
     return events
-
-if not os.path.exists('events.json'):
-    events = query_validator_epoch_info_events('https://fullnode.mainnet.sui.io:443')
-    with open('events.json', 'w') as fout:
-        json.dump(events, fout, indent=4, sort_keys=True)
-
-with open('events.json', 'r') as fin:
-    epoch_events = json.load(fin)
-
-epoch_validator_event_dict = {(str(event['parsedJson']['epoch']), event['parsedJson']['validator_address']): event 
-    for event in epoch_events}
-
 
 def calculate_rewards(
         epoch_validator_event_dict,
@@ -297,16 +293,6 @@ def calculate_rewards(
                 break        
     estimated_reward = max(0, ((rate_at_activation_epoch / rate_at_target_epoch) - 1.0) * principal)    
     return rate_at_activation_epoch, rate_at_target_epoch, estimated_reward, validator_id
-
-class RewardsForStakedSui(BaseModel):
-    object_id: str = Field(..., alias="objectId")
-    version: str
-    stake_activation_epoch: int
-    principal: float
-    estimated_rewards: float
-    rate_at_activation: float
-    rate_at_target: float
-    validator_id: str
 
 def filter_transactions_for_staked_sui(address, transactions) -> List[Transaction]:
     transformed_transactions = [
