@@ -371,7 +371,6 @@ def get_staked_sui_history(address, filtered_transactions: List[Transaction], re
     for epoch, epoch_objs in objs_by_epoch.items():
         for epoch_obj in epoch_objs:
             if epoch_obj.object_id not in objs_by_obj_id:
-                # objs_by_obj_id[epoch_obj.object_id] = OrganizedByObjectIdOptional(
                 objs_by_obj_id[epoch_obj.object_id] = OrganizedByObjectIdOptional(
                     digest = epoch_obj.digest,
                     object_id = epoch_obj.object_id,
@@ -385,8 +384,6 @@ def get_staked_sui_history(address, filtered_transactions: List[Transaction], re
                 })
             elif epoch_obj.status == "mutated":
                 mutated = objs_by_obj_id[epoch_obj.object_id].mutated
-                # mutated = [(int(e), int(v)) for e, v in mutated]                
-                # mutated.append((int(epoch), int(epoch_obj.version)))
                 mutated.append((epoch, epoch_obj.version))
                 objs_by_obj_id[epoch_obj.object_id] = objs_by_obj_id[epoch_obj.object_id].copy(update={
                     "mutated": mutated
@@ -416,9 +413,10 @@ def main():
     parser.add_argument("--address", default=None, type=str)
 
     # just need total_principal, total_estimated_reward
+    args = parser.parse_args()    
     print("Load EpochInfoV2 events")
     if not os.path.exists('events.json'):
-        events = query_validator_epoch_info_events('https://fullnode.testnet.sui.io:443')
+        events = query_validator_epoch_info_events(args.rpc_url)
         with open('events.json', 'w') as fout:
             json.dump(events, fout, indent=4, sort_keys=True)
 
@@ -430,7 +428,7 @@ def main():
     args = parser.parse_args()
     address = args.address
     query_epoch = int(args.epoch)
-    transactions = query_transaction_blocks("ToAddress", address)
+    transactions = query_transaction_blocks("ToAddress", address, args.rpc_url)
     if args.record:
         with open(f"{address}_transactions.json", "w") as f:
             json.dump(transactions, f, indent=4, sort_keys=True)
@@ -438,7 +436,7 @@ def main():
     filtered_transactions = filter_transactions_for_staked_sui(address, transactions)
     objs_by_obj_id = get_staked_sui_history(address, filtered_transactions, args.record)
     existing_objects = get_existing_objects_at_epoch(objs_by_obj_id, query_epoch)
-    past_objs = try_multi_get_past_objects(existing_objects)
+    past_objs = try_multi_get_past_objects(existing_objects, args.rpc_url)
 
     estimated_rewards = 0
     total_principal = 0
