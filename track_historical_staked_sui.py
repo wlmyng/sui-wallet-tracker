@@ -8,7 +8,7 @@ from datetime import datetime
 import os
 
 @lru_cache(maxsize=128)
-def query_transaction_blocks(filter_type, address, url='https://fullnode.mainnet.sui.io:443', cursor=None, limit=1000, descending_order=False):
+def query_transaction_blocks(filter_type, address, url='https://fullnode.testnet.sui.io:443', cursor=None, limit=1000, descending_order=False):
     query = {
         "filter": {
             filter_type: address,            
@@ -409,7 +409,7 @@ def get_staked_sui_history(address, filtered_transactions: List[Transaction], re
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--rpc-url", type=str, help="RPC URL to use", default="https://fullnode.mainnet.sui.io:443")    
+    parser.add_argument("--rpc-url", type=str, help="RPC URL to use", default="https://fullnode.testnet.sui.io:443")    
     parser.add_argument("--filename", default="test.csv")
     parser.add_argument("--epoch", default=95, type=int)
     parser.add_argument("--record", default=False, action="store_true")
@@ -418,7 +418,7 @@ def main():
     # just need total_principal, total_estimated_reward
     print("Load EpochInfoV2 events")
     if not os.path.exists('events.json'):
-        events = query_validator_epoch_info_events('https://fullnode.mainnet.sui.io:443')
+        events = query_validator_epoch_info_events('https://fullnode.testnet.sui.io:443')
         with open('events.json', 'w') as fout:
             json.dump(events, fout, indent=4, sort_keys=True)
 
