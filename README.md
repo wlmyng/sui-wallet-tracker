@@ -11,3 +11,7 @@ Produces an `output.csv` of `Address,Name,Type,Sui holdings`. Each input row wil
 
 ## Using track_historical_staked_sui.py
 `python3 track_historical_staked_sui.py --epoch 94 --address 0xAddress`
+
+
+## TODO
+Combining the above so we can get a csv of results for a given epoch.
