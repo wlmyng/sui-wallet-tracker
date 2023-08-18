@@ -125,7 +125,6 @@ def main():
     for row in input_data:
         try:
             rows = process_row(args, row, args.epoch)
-            output.extend(rows)
         except timeout_decorator.TimeoutError:
             print(f"Timeout processing {row.address}")
             rows = build_rows(row.address, row.category, -1, -1, -1)

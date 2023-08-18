@@ -240,29 +240,25 @@ class RewardsForStakedSui(BaseModel):
 def get_existing_objects_at_epoch(objs_by_obj_id: Dict[str, OrganizedByObjectId], epoch) -> List[StakedSuiAtEpoch]:        
     existing_objects = []
     for object_id, obj in objs_by_obj_id.items():  
-        latest_version = None
 
-        # we expect all objects to have a created or mutated field
-        if not obj.created and not obj.mutated:
+        # expect obj to have at least one of created or mutated
+        if obj.created is None and obj.mutated is None:
+            continue
+        # filter out objects that were deleted before or in the epoch
+        if obj.deleted is not None and obj.deleted <= epoch:
             continue
 
-        if obj.deleted and obj.deleted <= epoch:
-            continue
-
-        if obj.created and obj.created <= epoch:
-            latest_version = obj.version      
-
-        if obj.mutated:
+        version = None
+        if obj.created <= epoch:        
+            version = obj.version            
+        # In the case of a transferred object, we may not have information on when the object was created        
+        if obj.mutated:            
             for mutation_epoch, mutation_version in obj.mutated:                    
                 if mutation_epoch <= epoch:                                                
-                    if latest_version is None or mutation_version > latest_version:                            
-                        latest_version = mutation_version
-
-        if latest_version is None:
-            continue        
-        
-        print(f"Found object {object_id} at epoch {epoch} with version {latest_version}")
-        existing_objects.append(StakedSuiAtEpoch(object_id=object_id, version=latest_version))                                        
+                    if version is None or mutation_version > version:                            
+                        version = mutation_version                
+        if version is not None: 
+            existing_objects.append(StakedSuiAtEpoch(object_id=object_id, version=version))                                        
     return existing_objects
 
 def chunked_requests(request: List[Any], chunk_size=50):
@@ -382,7 +378,7 @@ def build_object_history(address, filtered_transactions: List[Transaction], reco
     for epoch, epoch_objs in objs_by_epoch.items():
         for epoch_obj in epoch_objs:
             if epoch_obj.object_id not in objs_by_obj_id:
-                objs_by_obj_id[epoch_obj.object_id] = OrganizedByObjectId(
+                objs_by_obj_id[epoch_obj.object_id] = OrganizedByObjectIdOptional(
                     digest = epoch_obj.digest,
                     object_id = epoch_obj.object_id,
                     version = epoch_obj.version,
