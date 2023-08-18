@@ -118,24 +118,31 @@ def main():
     parser.add_argument("--rpc-url", type=str, help="RPC URL to use", default="https://fullnode.mainnet.sui.io:443")    
     parser.add_argument("--filename", default="test.csv")
     parser.add_argument("--epoch", type=int, help="Epoch to use", required=False)
+    parser.add_argument("--append", action="store_true", help="Append to output.csv instead of overwriting it")
+    parser.add_argument("--start-from", type=int, help="Start from a specific row in the CSV file", default=0)
     args = parser.parse_args()
 
     input_data = read_csv(args.filename)
-    output = []
-    for row in input_data:
-        try:
-            rows = process_row(args, row, args.epoch)
-        except timeout_decorator.TimeoutError:
-            print(f"Timeout processing {row.address}")
-            rows = build_rows(row.address, row.category, -1, -1, -1)
-        output.extend(rows)
-        
-    
-    with open("output.csv", "w") as f:
+    input_data = input_data[args.start_from:]
+
+    if args.append:
+        mode = "a"
+    with open("output.csv", mode) as f:
         writer = csv.writer(f)
-        writer.writerow(["Address", "Name", "Type", "Sui holdings"])        
-        for row in output:
-            writer.writerow(row)
+        if not args.append:
+            writer.writerow(["Address", "Name", "Type", "Sui holdings"])  # Write the header row
+    
+        for row in input_data:
+            try:
+                rows = process_row(args, row, args.epoch)
+            except timeout_decorator.TimeoutError:
+                print(f"Timeout processing {row.address}")
+                rows = build_rows(row.address, row.category, -1, -1, -1)
+            
+            # Write rows to the CSV file immediately after processing
+            for r in rows:
+                writer.writerow(r)
+
 
 if __name__ == "__main__":
     main()

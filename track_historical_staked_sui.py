@@ -249,10 +249,10 @@ def get_existing_objects_at_epoch(objs_by_obj_id: Dict[str, OrganizedByObjectId]
             continue
 
         version = None
-        if obj.created <= epoch:        
+        if obj.created is not None and obj.created <= epoch:        
             version = obj.version            
         # In the case of a transferred object, we may not have information on when the object was created        
-        if obj.mutated:            
+        if obj.mutated is not None:            
             for mutation_epoch, mutation_version in obj.mutated:                    
                 if mutation_epoch <= epoch:                                                
                     if version is None or mutation_version > version:                            
@@ -447,7 +447,7 @@ def everything(rpc_url, address, epoch, refetch_epoch_events=False, record=False
         pool_id = staked_sui_fields['pool_id']    
         result = calculate_rewards(sui_system_state, epoch_validator_event_dict, principal, pool_id, stake_activation_epoch, query_epoch)
         rewards_for_staked_sui = RewardsForStakedSui(**past_obj['details'], stake_activation_epoch=stake_activation_epoch, principal=principal / 1e9, estimated_rewards=result[2] / 1e9, rate_at_activation=result[0], rate_at_target=result[1], validator_id=result[3])
-        print(rewards_for_staked_sui)
+        # print(rewards_for_staked_sui)
         results.append(result)    
         estimated_rewards += result[2]
 
