@@ -5,6 +5,8 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Iterator
 import csv
+from timeout_decorator import timeout, timeout_decorator
+from track_historical_staked_sui import everything
 
 class Stake(BaseModel):
     stakedSuiId: str
@@ -36,7 +38,7 @@ class StakeAndReward(BaseModel):
 
 class CsvInput(BaseModel):
     address: str = Field(..., alias="Wallet Address")
-    category: str = Field(..., alias="Category")
+    category: Optional[str] = Field(..., alias="Category")
 
 
 def get_balance(url, owner, coin_type="0x2::sui::SUI"):
@@ -80,14 +82,13 @@ def calculate_stake_and_reward(get_stakes_result: GetStakesResult) -> StakeAndRe
     total_estimated_reward = 0
     for validator in get_stakes_result:
         for stake in validator.stakes:
-            print(stake)
             total_stakes += 1
             total_principal += int(stake.principal)
-            total_estimated_reward += int(stake.estimatedReward)            
-    print(total_stakes)
+            total_estimated_reward += int(stake.estimatedReward)                
     return StakeAndReward(total_principal=total_principal, total_estimated_reward=total_estimated_reward)
 
 def build_rows(address, name, liquid, staked, reward):
+    name = "N/A" if not name else name
     rows = []
     for balance, type in zip([liquid, staked, reward], ["Liquid SUI", "Staked SUI", "Estimated Reward"]):
         rows.append([address, name, type, round((int(balance) / 1e9), 2)])
@@ -98,11 +99,16 @@ def read_csv(filename: str) -> List[CsvInput]:
         reader = csv.DictReader(f)
         return [CsvInput.parse_obj(row) for row in reader]        
 
-def process_row(args, row: CsvInput):
-    print(f"Processing {row.address}")        
-    liquid_balance = get_balance(args.rpc_url, row.address).totalBalance
-    stakes = get_stakes(args.rpc_url, row.address)
-    result = calculate_stake_and_reward(stakes)
+@timeout(60)
+def process_row(args, row: CsvInput, epoch: int = None):
+    print(f"Processing {row.address}")
+    if epoch:
+        (liquid_balance, total_principal, estimated_rewards) = everything(args.rpc_url, row.address, epoch)
+        result = StakeAndReward(total_principal=total_principal, total_estimated_reward=estimated_rewards)
+    else:
+        liquid_balance = get_balance(args.rpc_url, row.address).totalBalance
+        stakes = get_stakes(args.rpc_url, row.address)
+        result = calculate_stake_and_reward(stakes)
     
     rows = build_rows(row.address, row.category, liquid_balance, result.total_principal, result.total_estimated_reward)
     return rows
@@ -110,14 +116,21 @@ def process_row(args, row: CsvInput):
 def main():    
     parser = argparse.ArgumentParser()
     parser.add_argument("--rpc-url", type=str, help="RPC URL to use", default="https://fullnode.mainnet.sui.io:443")    
-    parser.add_argument("--filename", default="test.csv")    
+    parser.add_argument("--filename", default="test.csv")
+    parser.add_argument("--epoch", type=int, help="Epoch to use", required=False)
     args = parser.parse_args()
 
     input_data = read_csv(args.filename)
     output = []
     for row in input_data:
-        rows = process_row(args, row)
+        try:
+            rows = process_row(args, row, args.epoch)
+            output.extend(rows)
+        except timeout_decorator.TimeoutError:
+            print(f"Timeout processing {row.address}")
+            rows = build_rows(row.address, row.category, -1, -1, -1)
         output.extend(rows)
+        
     
     with open("output.csv", "w") as f:
         writer = csv.writer(f)
