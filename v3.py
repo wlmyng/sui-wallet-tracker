@@ -21,11 +21,8 @@ def read_csv(filename: str) -> List[CsvInput]:
 def main():    
     parser = argparse.ArgumentParser()
     parser.add_argument("--rpc-url", type=str, help="RPC URL to use", default="https://fullnode.mainnet.sui.io:443")    
-    parser.add_argument("--filename", default="test.csv")
-    parser.add_argument("--epoch", type=int, help="Epoch to use", required=False)
-    parser.add_argument("--append", action="store_true", help="Append to output.csv instead of overwriting it")
-    parser.add_argument("--start-from", type=int, help="Start from a specific row in the CSV file", default=0)
-    parser.add_argument("--cumulative", action="store_true", help="Calculate cumulative staked SUI", default=False)
+    parser.add_argument("--filename", default="test.csv")    
+    parser.add_argument("--start-from", type=int, help="Start from a specific row in the CSV file", default=0)    
     args = parser.parse_args()
 
     input_data = read_csv(args.filename)

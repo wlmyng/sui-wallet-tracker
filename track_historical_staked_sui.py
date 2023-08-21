@@ -299,7 +299,29 @@ def find_closest(numbers, target):
             closest = num
     return closest
 
+def get_validator_id_for_inactive_pool(sui_client: SuiClient, pool_id, sui_system_state):
+    inactive_pools = sui_client.get_dynamic_fields(sui_system_state['inactivePoolsId'])
+    validator_wrapper = None
+    for item in inactive_pools:        
+        if item['name']['value'] == pool_id:
+            validator_wrapper = item['objectId']
+            break
+    
+    if validator_wrapper is None:
+        raise Exception(f"Could not find validator wrapper for pool {pool_id}")
+    
+    validator_wrapper_object = sui_client.get_object(validator_wrapper)
+    validator_dynamic_fields_id = validator_wrapper_object['content']['fields']['value']['fields']['inner']['fields']['id']['id']
+
+    validator_object = sui_client.get_dynamic_fields(validator_dynamic_fields_id)
+    validator_object_id = validator_object[0]['objectId']
+
+    validator_object = sui_client.get_object(validator_object_id)
+    validator_address = validator_object['content']['fields']['value']['fields']['metadata']['fields']['sui_address']
+    return validator_address
+
 def calculate_rewards(
+        sui_client,
         sui_system_state,
         epoch_validator_event_dict,
         principal,
@@ -313,10 +335,11 @@ def calculate_rewards(
             validator_id = validator['suiAddress']            
             break
     if not validator_id:
-        raise Exception(f"Could not find validator for pool {pool_id}")        
+        validator_id = get_validator_id_for_inactive_pool(sui_client, pool_id, sui_system_state)
+        # raise Exception(f"Could not find validator for pool {pool_id} at activation epoch {activation_epoch}, target epoch {target_epoch}")
             
     rate_at_activation_epoch = 1
-    rate_at_target_epoch = 1
+    rate_at_target_epoch = None
     
     for epoch, validator_address in [(activation_epoch, validator_id), (target_epoch, validator_id)]:
         event = epoch_validator_event_dict.get((str(epoch), validator_address))
@@ -331,6 +354,8 @@ def calculate_rewards(
 
             if rate_at_activation_epoch and rate_at_target_epoch:
                 break        
+    
+    rate_at_target_epoch = 1 if rate_at_target_epoch is None else rate_at_target_epoch
     estimated_reward = max(0, ((rate_at_activation_epoch / rate_at_target_epoch) - 1.0) * principal)    
     return rate_at_activation_epoch, rate_at_target_epoch, estimated_reward, validator_id
 
@@ -436,64 +461,6 @@ def build_object_history(address, filtered_transactions: List[Transaction], reco
     objs_by_obj_id: Dict[str, OrganizedByObjectId] = {k: OrganizedByObjectId.parse_obj(v) for k, v in objs_dict.items()}
 
     return (objs_by_epoch, objs_by_obj_id)
-
-# def everything(rpc_url, address, epoch, refetch_epoch_events=False, record=False):
-#     sui_client = SuiClient(rpc_url)
-#     print("Load EpochInfoV2 events")
-#     if not os.path.exists('events.json') or refetch_epoch_events:
-#         print("Need to refetch EpochInfoV2 events")
-#         epoch_events = sui_client.query_validator_epoch_info_events()
-#         with open('events.json', 'w') as fout:
-#             json.dump(epoch_events, fout, indent=4, sort_keys=True)
-#     else:
-#         with open('events.json', 'r') as fin:
-#             epoch_events = json.load(fin)
-#     epoch_validator_event_dict = {(str(event['parsedJson']['epoch']), event['parsedJson']['validator_address']): event 
-#     for event in epoch_events}    
-#     query_epoch = int(epoch)
-#     transactions = sui_client.query_transaction_blocks("ToAddress", address)
-#     if record:
-#         with open(f"{address}_transactions.json", "w") as f:
-#             json.dump(transactions, f, indent=4, sort_keys=True)    
-#     filtered_transactions = filter_transactions_for_object_type(address, transactions)
-#     objs_by_obj_id = build_object_history(address, filtered_transactions, record)
-#     existing_objects = get_existing_objects_at_epoch(objs_by_obj_id, query_epoch)
-#     past_objs = sui_client.try_multi_get_past_objects(existing_objects)    
-
-#     estimated_rewards = 0
-#     total_principal = 0
-#     results = []
-#     sui_system_state = sui_client.get_sui_system_state()
-
-#     for past_obj in past_objs:        
-#         print(past_obj)
-#         staked_sui_fields = past_obj['details']['content']['fields']
-#         print(staked_sui_fields)
-#         stake_activation_epoch = int(staked_sui_fields['stake_activation_epoch'])
-#         principal = int(staked_sui_fields['principal'])    
-#         total_principal += principal
-#         pool_id = staked_sui_fields['pool_id']    
-#         result = calculate_rewards(sui_system_state, epoch_validator_event_dict, principal, pool_id, stake_activation_epoch, query_epoch)
-#         rewards_for_staked_sui = RewardsForStakedSui(**past_obj['details'], stake_activation_epoch=stake_activation_epoch, principal=principal / 1e9, estimated_rewards=result[2] / 1e9, rate_at_activation=result[0], rate_at_target=result[1], validator_id=result[3])
-#         # print(rewards_for_staked_sui)
-#         results.append(result)    
-#         estimated_rewards += result[2]
-
-#     transactions.extend(sui_client.query_transaction_blocks("FromAddress", address))
-#     if record:
-#         with open(f"{address}_transactions.json", "w") as f:
-#             json.dump(transactions, f, indent=4, sort_keys=True)
-#     filtered_transactions = filter_transactions_for_object_type(address, transactions, "0x2::coin::Coin<0x2::sui::SUI>")        
-#     objs_by_obj_id = build_object_history(address, filtered_transactions, record)
-#     existing_objects = get_existing_objects_at_epoch(objs_by_obj_id, query_epoch)
-#     past_objs = sui_client.try_multi_get_past_objects(existing_objects)
-    
-#     liquid_balance = 0
-#     for past_obj in past_objs:        
-#         print(past_obj)
-#         liquid_balance += int(past_obj['details']['content']['fields']['balance'])
-    
-#     return (liquid_balance, total_principal, estimated_rewards)
    
 @timeout(60)
 def get_all_sui_objs_at_epoch(sui_client: SuiClient, address, epoch, record=False) -> Tuple[List[StakedSuiRef], List[SuiCoinRef]]:
@@ -505,8 +472,6 @@ def get_all_sui_objs_at_epoch(sui_client: SuiClient, address, epoch, record=Fals
             json.dump(transactions, f, indent=4, sort_keys=True)    
     filtered_transactions = filter_transactions_for_object_type(address, transactions)
     objs_by_epoch, objs_by_obj_id = build_object_history(address, filtered_transactions, record)
-    # get object_id, version
-    # for epoch in epoch, get_existing_objects_at_epoch
     existing_objects = get_existing_objects_at_epoch(objs_by_obj_id, query_epoch)
     past_objs = sui_client.try_multi_get_past_objects(existing_objects)    
     
@@ -549,7 +514,6 @@ def get_all_sui_objs_at_epoch(sui_client: SuiClient, address, epoch, record=Fals
         ))                
     
     return (staked_sui_objs, sui_coin_objs)
-
 
 @timeout(60)
 def build_object_history_for_address(sui_client: SuiClient, address, record=False) -> Tuple[List[Union[StakedSuiRef, DeletedObjectRef]], List[Union[SuiCoinRef, DeletedObjectRef]]]:
@@ -627,11 +591,10 @@ def build_object_history_for_address(sui_client: SuiClient, address, record=Fals
     
     return (staked_sui_objs, sui_coin_objs)
 
-def calculate_balances(rpc_url, epoch, staked_sui_objs: List[StakedSuiRef], sui_coin_objs: List[SuiCoinRef], refetch_epoch_events=False, record=False) -> Tuple[int, int, int]:
+def calculate_balances(sui_client: SuiClient, epoch, staked_sui_objs: List[StakedSuiRef], sui_coin_objs: List[SuiCoinRef], refetch_epoch_events=False, record=False) -> Tuple[int, int, int]:
     liquid_balance = 0
     staked_sui = 0
     estimated_rewards = 0
-    sui_client = SuiClient(rpc_url)
     sui_system_state = sui_client.get_sui_system_state()
 
     if not os.path.exists('events.json') or refetch_epoch_events:
@@ -646,7 +609,7 @@ def calculate_balances(rpc_url, epoch, staked_sui_objs: List[StakedSuiRef], sui_
     for event in epoch_events}   
         
     for staked_sui_obj in staked_sui_objs:
-        result = calculate_rewards(sui_system_state, epoch_validator_event_dict, 
+        result = calculate_rewards(sui_client, sui_system_state, epoch_validator_event_dict, 
                                    staked_sui_obj.principal,
                                    staked_sui_obj.pool_id,
                                    staked_sui_obj.stake_activation_epoch,
@@ -657,22 +620,3 @@ def calculate_balances(rpc_url, epoch, staked_sui_objs: List[StakedSuiRef], sui_
     for sui_coin_obj in sui_coin_objs:
         liquid_balance += sui_coin_obj.balance
     return (liquid_balance, staked_sui, estimated_rewards)    
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--rpc-url", type=str, help="RPC URL to use", default="https://fullnode.testnet.sui.io:443")    
-    parser.add_argument("--filename", default="test.csv")
-    parser.add_argument("--epoch", default=95, type=int)
-    parser.add_argument("--record", default=False, action="store_true")
-    parser.add_argument("--address", default=None, type=str)
-    
-    args = parser.parse_args()    
-    result = everything(args.rpc_url, args.address, args.epoch, False, args.record)
-    print("liquid balance", result[0]/1e9)
-    print("total principal", result[1]/1e9)
-    print("estimated rewards", result[2]/1e9)
-    
-
-
-if __name__ == "__main__":
-    main()
