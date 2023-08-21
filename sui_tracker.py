@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Iterator
 import csv
 from timeout_decorator import timeout, timeout_decorator
-from track_historical_staked_sui import get_all_sui_objs_at_epoch, calculate_balances
+from track_historical_staked_sui import get_all_sui_objs_at_epoch, calculate_rewards_for_address
 
 class Stake(BaseModel):
     stakedSuiId: str
@@ -106,7 +106,7 @@ def process_row(args, row: CsvInput, epoch: int = None):
         (staked_sui_objs, sui_coin_objs) = get_all_sui_objs_at_epoch(args.rpc_url, row.address, epoch)        
         print(staked_sui_objs)
         print(sui_coin_objs)
-        (liquid_balance, total_principal, estimated_rewards) = calculate_balances(args.rpc_url, epoch, staked_sui_objs, sui_coin_objs)        
+        (liquid_balance, total_principal, estimated_rewards) = calculate_rewards_for_address(args.rpc_url, epoch, staked_sui_objs, sui_coin_objs)        
         result = StakeAndReward(total_principal=total_principal, total_estimated_reward=estimated_rewards)
     else:
         liquid_balance = get_balance(args.rpc_url, row.address).totalBalance

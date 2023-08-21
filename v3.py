@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Iterator
 import csv
 from timeout_decorator import timeout, timeout_decorator
-from track_historical_staked_sui import SuiClient, build_object_history_for_address, calculate_balances
+from track_historical_staked_sui import SuiClient, build_object_history_for_address, calculate_rewards_for_address
 from sqlite_manager import SqliteManager
 
 class CsvInput(BaseModel):

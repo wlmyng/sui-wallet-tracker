@@ -3,7 +3,7 @@ import argparse
 import csv
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from track_historical_staked_sui import SuiClient, StakedSuiRef, SuiCoinRef, calculate_balances
+from track_historical_staked_sui import SuiClient, StakedSuiRef, SuiCoinRef, calculate_rewards_for_address
 
 def get_liquid_for_address_at_epoch(address, query_epoch, db_path="sui_data.db") -> List[SuiCoinRef]:
     conn = sqlite3.connect(db_path)
@@ -116,10 +116,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--rpc-url", type=str, help="RPC URL to use", default="https://fullnode.mainnet.sui.io:443")    
     parser.add_argument("--filename", default="test.csv")
-    parser.add_argument("--epoch", type=int, help="Epoch to end at", required=True)
+    parser.add_argument("--start-epoch", type=int, help="Epoch to start at", default=0)
+    parser.add_argument("--end-epoch", type=int, help="Epoch to end at", default=130)
     parser.add_argument("--append", action="store_true", help="Append to output.csv instead of overwriting it")
     parser.add_argument("--start-from", type=int, help="Start from a specific row in the CSV file", default=0)    
+    parser.add_argument("--liquid-sui", action="store_true", help="Calculate liquid SUI", default=True)
+    parser.add_argument("--staked-sui", action="store_true", help="Calculate staked SUI", default=True)
+    parser.add_argument("--estimated-rewards", action="store_true", help="Calculate estimated rewards", default=False)
+
     args = parser.parse_args()
+
+    if args.estimated_rewards and not args.staked_sui:
+        raise Exception("Cannot calculate estimated rewards without staked SUI")
 
     sui_client = SuiClient(args.rpc_url)
 
@@ -127,7 +135,7 @@ def main():
     input_data = input_data[args.start_from:]
 
     mode = "a" if args.append else "w"
-    epochs = list(range(0, args.epoch))
+    epochs = list(range(args.start_epoch, args.end_epoch + 1))
     with open("output.csv", mode) as f:
         writer = csv.writer(f)
         if not args.append:
@@ -139,13 +147,16 @@ def main():
             print(f"Processing {row.address}")
             data_to_write = {}
             for epoch in epochs:
-                sui_coin_objs = get_liquid_for_address_at_epoch(row.address, epoch)            
+                sui_coin_objs = get_liquid_for_address_at_epoch(row.address, epoch)  
+                liquid_balance = 0
+                for sui_coin_obj in sui_coin_objs:
+                    liquid_balance += sui_coin_obj.balance          
                 staked_sui_objs = get_staked_for_address_at_epoch(row.address, epoch)
-                balances = calculate_balances(sui_client, epoch, staked_sui_objs, sui_coin_objs)
+                stake_results = calculate_rewards_for_address(sui_client, epoch, staked_sui_objs)
                 data_to_write[epoch] = (
-                    round( (int(balances[0]) / 1e9), 2),
-                    round( (int(balances[1]) / 1e9), 2),
-                    round( (int(balances[2]) / 1e9), 2)
+                    round( (int(liquid_balance) / 1e9), 2),
+                    round( (int(stake_results[0]) / 1e9), 2),
+                    round( (int(stake_results[1]) / 1e9), 2)
                 )
                         
             name = row.category if row.category else ""
