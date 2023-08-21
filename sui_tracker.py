@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Iterator
 import csv
 from timeout_decorator import timeout, timeout_decorator
-from track_historical_staked_sui import everything
+from track_historical_staked_sui import get_all_sui_objs_at_epoch, calculate_balances
 
 class Stake(BaseModel):
     stakedSuiId: str
@@ -103,7 +103,10 @@ def read_csv(filename: str) -> List[CsvInput]:
 def process_row(args, row: CsvInput, epoch: int = None):
     print(f"Processing {row.address}")
     if epoch:
-        (liquid_balance, total_principal, estimated_rewards) = everything(args.rpc_url, row.address, epoch)
+        (staked_sui_objs, sui_coin_objs) = get_all_sui_objs_at_epoch(args.rpc_url, row.address, epoch)        
+        print(staked_sui_objs)
+        print(sui_coin_objs)
+        (liquid_balance, total_principal, estimated_rewards) = calculate_balances(args.rpc_url, epoch, staked_sui_objs, sui_coin_objs)        
         result = StakeAndReward(total_principal=total_principal, total_estimated_reward=estimated_rewards)
     else:
         liquid_balance = get_balance(args.rpc_url, row.address).totalBalance
@@ -120,28 +123,31 @@ def main():
     parser.add_argument("--epoch", type=int, help="Epoch to use", required=False)
     parser.add_argument("--append", action="store_true", help="Append to output.csv instead of overwriting it")
     parser.add_argument("--start-from", type=int, help="Start from a specific row in the CSV file", default=0)
+    parser.add_argument("--cumulative", action="store_true", help="Calculate cumulative staked SUI", default=False)
     args = parser.parse_args()
 
     input_data = read_csv(args.filename)
     input_data = input_data[args.start_from:]
 
-    if args.append:
-        mode = "a"
+    mode = "a" if args.append else "w"    
     with open("output.csv", mode) as f:
         writer = csv.writer(f)
         if not args.append:
             writer.writerow(["Address", "Name", "Type", "Sui holdings"])  # Write the header row
     
         for row in input_data:
-            try:
-                rows = process_row(args, row, args.epoch)
-            except timeout_decorator.TimeoutError:
-                print(f"Timeout processing {row.address}")
-                rows = build_rows(row.address, row.category, -1, -1, -1)
+            epochs = [args.epoch] if not args.cumulative else list(range(0, args.epoch + 1))            
+            for epoch in epochs:  
+                print(epoch)              
+                try:
+                    rows = process_row(args, row, epoch)
+                except timeout_decorator.TimeoutError:
+                    print(f"Timeout processing {row.address}")
+                    rows = build_rows(row.address, row.category, -1, -1, -1)
             
-            # Write rows to the CSV file immediately after processing
-            for r in rows:
-                writer.writerow(r)
+                # Write rows to the CSV file immediately after processing
+                for r in rows:
+                    writer.writerow(r)
 
 
 if __name__ == "__main__":
