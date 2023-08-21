@@ -18,6 +18,7 @@ class SuiClient:
         self.url = url
         self.headers = {'content-type': 'application/json'}
 
+    @lru_cache(maxsize=128)
     def query_validator_epoch_info_events(self, cursor=None):
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
         events = []
@@ -590,27 +591,10 @@ def build_object_history_for_address(sui_client: SuiClient, address, record=Fals
     
     return (staked_sui_objs, sui_coin_objs)
 
-def calculate_rewards_for_address(sui_client: SuiClient, epoch, staked_sui_objs: List[StakedSuiRef], refetch_epoch_events=False, record=False) -> Tuple[int, int, int]:
+def calculate_rewards_for_address(sui_client: SuiClient, epoch_validator_event_dict, epoch, staked_sui_objs: List[StakedSuiRef]) -> Tuple[int, int, int]:
     staked_sui = 0
     estimated_rewards = 0
-    sui_system_state = sui_client.get_sui_system_state()
-
-    if not os.path.exists('events.json') or refetch_epoch_events:
-        print("Need to make initial fetch for EpochInfoV2 events")
-        epoch_events = sui_client.query_validator_epoch_info_events()
-        with open('events.json', 'w') as fout:
-            json.dump(epoch_events, fout, indent=4, sort_keys=True)
-    else:
-        with open('events.json', 'r') as fin:
-            epoch_events = json.load(fin)
-        new_epoch_events = sui_client.query_validator_epoch_info_events(epoch_events[-1]['id'])
-        if len(new_epoch_events) > 0:
-            print("Extending events.json for new EpochInfoV2 events")
-            epoch_events.extend(new_epoch_events)
-            with open('events.json', 'w') as fout:
-                json.dump(epoch_events, fout, indent=4, sort_keys=True)
-    epoch_validator_event_dict = {(str(event['parsedJson']['epoch']), event['parsedJson']['validator_address']): event 
-    for event in epoch_events}   
+    sui_system_state = sui_client.get_sui_system_state()  
         
     for staked_sui_obj in staked_sui_objs:
         result = calculate_rewards(sui_client, sui_system_state, epoch_validator_event_dict, 

@@ -1,6 +1,8 @@
 import sqlite3
 import argparse
 import csv
+import os
+import json
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from track_historical_staked_sui import SuiClient, StakedSuiRef, SuiCoinRef, calculate_rewards_for_address
@@ -134,6 +136,24 @@ def main():
     input_data = read_csv(args.filename)
     input_data = input_data[args.start_from:]
 
+    if not os.path.exists('events.json'):
+        print("Need to make initial fetch for EpochInfoV2 events")
+        epoch_events = sui_client.query_validator_epoch_info_events()
+        with open('events.json', 'w') as f:
+            json.dump(epoch_events, f, indent=4, sort_keys=True)
+    else:
+        with open('events.json', 'r') as f:
+            epoch_events = json.load(f)
+        if int(epoch_events[-1]['parsedJson']['epoch']) < int(args.end_epoch):
+            print("Need to make additional fetch for EpochInfoV2 events")
+            new_epoch_events = sui_client.query_validator_epoch_info_events(epoch_events[-1]['id'])
+            epoch_events.extend(new_epoch_events)
+            with open('events.json', 'w') as f:
+                json.dump(epoch_events, f, indent=4, sort_keys=True)
+    epoch_validator_event_dict = {(str(event['parsedJson']['epoch']), event['parsedJson']['validator_address']): event 
+    for event in epoch_events}   
+
+
     mode = "a" if args.append else "w"
     epochs = list(range(args.start_epoch, args.end_epoch + 1))
     with open("output.csv", mode) as f:
@@ -152,7 +172,7 @@ def main():
                 for sui_coin_obj in sui_coin_objs:
                     liquid_balance += sui_coin_obj.balance          
                 staked_sui_objs = get_staked_for_address_at_epoch(row.address, epoch)
-                stake_results = calculate_rewards_for_address(sui_client, epoch, staked_sui_objs)
+                stake_results = calculate_rewards_for_address(sui_client, epoch_validator_event_dict, epoch, staked_sui_objs)
                 data_to_write[epoch] = (
                     round( (int(liquid_balance) / 1e9), 2),
                     round( (int(stake_results[0]) / 1e9), 2),
