@@ -17,8 +17,7 @@ class SuiClient:
     def __init__(self, url='https://fullnode.mainnet.sui.io:443'):
         self.url = url
         self.headers = {'content-type': 'application/json'}
-
-    @lru_cache(maxsize=128)
+    
     def query_validator_epoch_info_events(self, cursor=None):
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
         events = []
@@ -237,6 +236,7 @@ class RewardsForStakedSui(BaseModel):
     rate_at_activation: float
     rate_at_target: float
     validator_id: str
+    pool_id: str
   
 class StakedSuiRef(BaseModel):
     object_id: str
@@ -301,6 +301,7 @@ def find_closest(numbers, target):
 
 def get_validator_id_for_inactive_pool(sui_client: SuiClient, pool_id, sui_system_state):
     inactive_pools = sui_client.get_dynamic_fields(sui_system_state['inactivePoolsId'])
+    print(inactive_pools)
     validator_wrapper = None
     for item in inactive_pools:        
         if item['name']['value'] == pool_id:
@@ -324,11 +325,16 @@ def calculate_rewards(
         sui_client,
         sui_system_state,
         epoch_validator_event_dict,
-        principal,
-        pool_id='0x748a0ce980c3804d21267a4d359ac5c64bd40cb6a3e02a527b45f828cf8fd30d',
-        activation_epoch=0,
-        target_epoch=105
-        ):            
+        principal,        
+        pool_id,
+        stake_activation_epoch,
+        target_epoch=105,
+        use_previous_epoch=False
+        ):
+    
+    if use_previous_epoch:
+        activation_epoch = max(stake_activation_epoch, target_epoch - 1, 0)
+    
     validator_id = None
     for validator in sui_system_state['activeValidators']:
         if validator['stakingPoolId'] == pool_id:
@@ -348,15 +354,18 @@ def calculate_rewards(
             sui_amount = int(event['parsedJson']['pool_token_exchange_rate']['sui_amount'])
             rate = pool_token_amount / sui_amount
             if epoch == activation_epoch:
-                rate_at_activation_epoch = rate
-            if epoch == target_epoch:        
+                rate_at_activation_epoch = rate                
+            if epoch == target_epoch:                        
                 rate_at_target_epoch = rate
 
             if rate_at_activation_epoch and rate_at_target_epoch:
                 break        
     
     rate_at_target_epoch = 1 if rate_at_target_epoch is None else rate_at_target_epoch
-    estimated_reward = max(0, ((rate_at_activation_epoch / rate_at_target_epoch) - 1.0) * principal)    
+    estimated_reward = max(0, ((rate_at_activation_epoch / rate_at_target_epoch) - 1.0) * principal)        
+
+    print(f"activation: {activation_epoch}, target: {target_epoch}, estimated_reward: {estimated_reward}")    
+
     return rate_at_activation_epoch, rate_at_target_epoch, estimated_reward, validator_id
 
 def filter_transactions_for_object_type(address, transactions, object_type="0x3::staking_pool::StakedSui") -> List[Transaction]:
@@ -591,18 +600,35 @@ def build_object_history_for_address(sui_client: SuiClient, address, record=Fals
     
     return (staked_sui_objs, sui_coin_objs)
 
-def calculate_rewards_for_address(sui_client: SuiClient, epoch_validator_event_dict, epoch, staked_sui_objs: List[StakedSuiRef]) -> Tuple[int, int, int]:
+def calculate_rewards_for_address(sui_client: SuiClient, epoch_validator_event_dict, epoch, staked_sui_objs: List[StakedSuiRef], use_previous_epoch=False) -> Tuple[int, int]:
     staked_sui = 0
     estimated_rewards = 0
-    sui_system_state = sui_client.get_sui_system_state()  
-        
+    sui_system_state = sui_client.get_sui_system_state()
+    
+    gather = []
     for staked_sui_obj in staked_sui_objs:
         result = calculate_rewards(sui_client, sui_system_state, epoch_validator_event_dict, 
                                    staked_sui_obj.principal,
                                    staked_sui_obj.pool_id,
-                                   staked_sui_obj.stake_activation_epoch,
-                                   epoch)
+                                   staked_sui_obj.stake_activation_epoch, # this is probably where the bug is coming from?
+                                   epoch,
+                                   use_previous_epoch)
+        gather.append(RewardsForStakedSui(
+            objectId=staked_sui_obj.object_id,
+            version=staked_sui_obj.version,
+            stake_activation_epoch=staked_sui_obj.stake_activation_epoch,
+            principal=staked_sui_obj.principal,
+            estimated_rewards=result[2],
+            rate_at_activation=result[0],
+            rate_at_target=result[1],
+            validator_id=result[3],
+            pool_id=staked_sui_obj.pool_id,
+        ))        
         estimated_rewards += result[2]
         staked_sui += staked_sui_obj.principal
+
+    with open(f"staked_sui_{epoch}.json", "w") as f:
+        jsonfiable = [item.dict() for item in gather]
+        json.dump(jsonfiable, f, indent=4, sort_keys=True)
                     
     return (staked_sui, estimated_rewards)    

@@ -15,6 +15,12 @@ python3 v3.py --filename test.csv
 python3 sui_tracker_v2.py --end-epoch 130 --filename test.csv
 ```
 
+Cumulative, accounting for unstakes
+```python3
+python3 sui_tracker_v2.py --start-epoch 0 --end-epoch 172 --filename test.csv --use-previous-epoch && python3 determine_cumulative.py
+```
+
+
 ## Code walkthrough
 v3.py file builds the historical object table:
 1. Fetch all transactions where ToAddress and FromAddress are for the address of interest

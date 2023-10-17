@@ -124,7 +124,8 @@ def main():
     parser.add_argument("--start-from", type=int, help="Start from a specific row in the CSV file", default=0)    
     parser.add_argument("--liquid-sui", action="store_true", help="Calculate liquid SUI", default=True)
     parser.add_argument("--staked-sui", action="store_true", help="Calculate staked SUI", default=True)
-    parser.add_argument("--estimated-rewards", action="store_true", help="Calculate estimated rewards", default=False)
+    parser.add_argument("--estimated-rewards", action="store_true", help="Calculate estimated rewards", default=False)        
+    parser.add_argument("--use-previous-epoch", action="store_true", help="Use previous epoch for estimated rewards", default=False)
 
     args = parser.parse_args()
 
@@ -156,10 +157,10 @@ def main():
 
     mode = "a" if args.append else "w"
     epochs = list(range(args.start_epoch, args.end_epoch + 1))
-    with open("output.csv", mode) as f:
+    with open("a.csv", mode) as f:
         writer = csv.writer(f)
         if not args.append:
-            header = ["Address", "Name", "Type", "Sui holdings"]
+            header = ["Address", "Name", "Type"]
             header.extend(epochs)
             writer.writerow(header)            
 
@@ -172,7 +173,7 @@ def main():
                 for sui_coin_obj in sui_coin_objs:
                     liquid_balance += sui_coin_obj.balance          
                 staked_sui_objs = get_staked_for_address_at_epoch(row.address, epoch)
-                stake_results = calculate_rewards_for_address(sui_client, epoch_validator_event_dict, epoch, staked_sui_objs)
+                stake_results = calculate_rewards_for_address(sui_client, epoch_validator_event_dict, epoch, staked_sui_objs, args.use_previous_epoch)
                 data_to_write[epoch] = (
                     round( (int(liquid_balance) / 1e9), 2),
                     round( (int(stake_results[0]) / 1e9), 2),
