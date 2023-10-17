@@ -364,9 +364,9 @@ def calculate_rewards(
                 break        
     
     rate_at_target_epoch = 1 if rate_at_target_epoch is None else rate_at_target_epoch
-    estimated_reward = max(0, ((rate_at_activation_epoch / rate_at_target_epoch) - 1.0) * principal)        
+    estimated_reward = max(0, ((rate_at_activation_epoch / rate_at_target_epoch) - 1.0) * principal)   
 
-    print(f"activation: {activation_epoch}, target: {target_epoch}, estimated_reward: {estimated_reward}")    
+    print(activation_epoch, target_epoch, rate_at_activation_epoch, rate_at_target_epoch, principal, estimated_reward, validator_id)         
 
     return rate_at_activation_epoch, rate_at_target_epoch, estimated_reward, validator_id
 
@@ -614,7 +614,7 @@ def calculate_rewards_for_address(sui_client: SuiClient, epoch_validator_event_d
                                    staked_sui_obj.pool_id,
                                    staked_sui_obj.stake_activation_epoch, # this is probably where the bug is coming from?
                                    epoch,
-                                   use_previous_epoch)
+                                   use_previous_epoch)        
         gather.append(RewardsForStakedSui(
             objectId=staked_sui_obj.object_id,
             version=staked_sui_obj.version,

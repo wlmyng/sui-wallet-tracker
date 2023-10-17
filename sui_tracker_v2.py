@@ -174,10 +174,14 @@ def main():
                     liquid_balance += sui_coin_obj.balance          
                 staked_sui_objs = get_staked_for_address_at_epoch(row.address, epoch)
                 stake_results = calculate_rewards_for_address(sui_client, epoch_validator_event_dict, epoch, staked_sui_objs, args.use_previous_epoch)
+                if args.use_previous_epoch:
+                    estimated_rewards = stake_results[1] / 1e9
+                else:
+                    estimated_rewards = round( (int(stake_results[1]) / 1e9), 2)
                 data_to_write[epoch] = (
                     round( (int(liquid_balance) / 1e9), 2),
                     round( (int(stake_results[0]) / 1e9), 2),
-                    round( (int(stake_results[1]) / 1e9), 2)
+                    estimated_rewards
                 )
                         
             name = row.category if row.category else ""
