@@ -334,6 +334,8 @@ def calculate_rewards(
     
     if use_previous_epoch:
         activation_epoch = max(stake_activation_epoch, target_epoch - 1, 0)
+    else:
+        activation_epoch = stake_activation_epoch
     
     validator_id = None
     for validator in sui_system_state['activeValidators']:
@@ -624,7 +626,9 @@ def calculate_rewards_for_address(sui_client: SuiClient, epoch_validator_event_d
             validator_id=result[3],
             pool_id=staked_sui_obj.pool_id,
         ))        
+        print(result[2], "outside")
         estimated_rewards += result[2]
+        print(estimated_rewards)
         staked_sui += staked_sui_obj.principal
 
     with open(f"staked_sui_{epoch}.json", "w") as f:
