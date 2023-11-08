@@ -117,7 +117,8 @@ def read_csv(filename: str) -> List[CsvInput]:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--rpc-url", type=str, help="RPC URL to use", default="https://fullnode.mainnet.sui.io:443")
-    parser.add_argument("--filename", default="test.csv")
+    parser.add_argument("--input-filename", default="test.csv")
+    parser.add_argument("--output-filename", default="output.csv")
     parser.add_argument("--start-epoch", type=int, help="Epoch to start at", default=0)
     parser.add_argument("--end-epoch", type=int, help="Epoch to end at", default=130)
     parser.add_argument("--append", action="store_true", help="Append to output.csv instead of overwriting it")
@@ -134,7 +135,7 @@ def main():
 
     sui_client = SuiClient(args.rpc_url)
 
-    input_data = read_csv(args.filename)
+    input_data = read_csv(args.input_filename)
     input_data = input_data[args.start_from:]
 
     if not os.path.exists('events.json'):
@@ -157,7 +158,7 @@ def main():
 
     mode = "a" if args.append else "w"
     epochs = list(range(args.start_epoch, args.end_epoch + 1))
-    with open("a.csv", mode) as f:
+    with open(args.output_filename, mode) as f:
         writer = csv.writer(f)
         if not args.append:
             header = ["Address", "Name", "Type"]

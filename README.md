@@ -7,19 +7,21 @@
 3. Run `python3 sui_tracker_v2.py` to calculate estimated rewards for staked SUI.
 4. Note that if you don't need the estimated rewards, you can use get_liquid_for_address_at_epoch or get_staked_for_address_at_epoch to get the liquid and staked SUI for an address at a given epoch. This is much faster than running the entire sui_tracker_v2.py script.
 
+The above is prone to operator error (for example, forgetting to update the db.) To avoid this, you can run `python3 run_me.py`
+
 ## Example usage
 
 NOTE: YOU MUST ALWAYS RUN v3.py TO GET THE LATEST LIQUID AND STAKED SUI!
 
 ```python3
 pip3 install -r requirements.txt
-python3 v3.py --filename test.csv
-python3 sui_tracker_v2.py --end-epoch 189 --filename test.csv
+python3 v3.py --input-filename test.csv
+python3 sui_tracker_v2.py --end-epoch 189 --input-filename test.csv
 ```
 
 Cumulative, accounting for unstakes
 ```python3
-python3 sui_tracker_v2.py --start-epoch 0 --end-epoch 172 --filename test.csv --use-previous-epoch && python3 determine_cumulative.py
+python3 sui_tracker_v2.py --start-epoch 0 --end-epoch 172 --input-filename test.csv --use-previous-epoch && python3 determine_cumulative.py
 ```
 
 
