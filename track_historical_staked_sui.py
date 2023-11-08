@@ -17,20 +17,20 @@ class SuiClient:
     def __init__(self, url='https://fullnode.mainnet.sui.io:443'):
         self.url = url
         self.headers = {'content-type': 'application/json'}
-    
+
     def query_validator_epoch_info_events(self, cursor=None):
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
         events = []
         query = {
             "MoveEventType": "0x3::validator_set::ValidatorEpochInfoEventV2"
-        }    
+        }
         limit = 1000
 
         payload = {
             "jsonrpc": "2.0",
             "id": timestamp,
             "method": "suix_queryEvents",
-            "params": [query, cursor, limit, False]        
+            "params": [query, cursor, limit, False]
         }
 
         headers = {'content-type': 'application/json'}
@@ -45,7 +45,7 @@ class SuiClient:
                 payload['params'] = params
                 response = requests.post(self.url, data=json.dumps(payload), headers=headers).json()
             else:
-                break    
+                break
         return events
 
     @lru_cache(maxsize=128)
@@ -129,7 +129,7 @@ class SuiClient:
                     }
                 ]
             }
-            response = requests.post(self.url, data=json.dumps(payload), headers=self.headers).json()            
+            response = requests.post(self.url, data=json.dumps(payload), headers=self.headers).json()
             final_result.extend(response['result'])
         return final_result
 
@@ -195,17 +195,17 @@ class ObjectChange(BaseModel):
     owner: Union[AddressOwner, dict]
 
 class Transaction(BaseModel):
-    checkpoint: str
+    checkpoint: str = None
     tx_digest: str = Field(..., alias="digest")
     effects: Effects
     object_changes: List[Union[ObjectChange, dict]] = Field(..., alias="objectChanges")
-    timestampMs: str
+    timestampMs: str = None
 
 class ObjectByEpoch(BaseModel):
     digest: str
     object_id: str
     version: str
-    status: str    
+    status: str
 
 class OrganizedByObjectIdOptional(BaseModel):
     digest: str
@@ -237,7 +237,7 @@ class RewardsForStakedSui(BaseModel):
     rate_at_target: float
     validator_id: str
     pool_id: str
-  
+
 class StakedSuiRef(BaseModel):
     object_id: str
     version: int
@@ -263,9 +263,9 @@ class DeletedObjectRef(BaseModel):
     owner: str
     deleted: bool
 
-def get_existing_objects_at_epoch(objs_by_obj_id: Dict[str, OrganizedByObjectId], epoch) -> List[ObjectAtEpoch]:        
+def get_existing_objects_at_epoch(objs_by_obj_id: Dict[str, OrganizedByObjectId], epoch) -> List[ObjectAtEpoch]:
     existing_objects = []
-    for object_id, obj in objs_by_obj_id.items():  
+    for object_id, obj in objs_by_obj_id.items():
 
         # expect obj to have at least one of created or mutated
         if obj.created is None and obj.mutated is None:
@@ -275,16 +275,16 @@ def get_existing_objects_at_epoch(objs_by_obj_id: Dict[str, OrganizedByObjectId]
             continue
 
         version = None
-        if obj.created is not None and obj.created <= epoch:        
-            version = obj.version            
-        # In the case of a transferred object, we may not have information on when the object was created        
-        if obj.mutated is not None:            
-            for mutation_epoch, mutation_version in obj.mutated:                    
-                if mutation_epoch <= epoch:                                                
-                    if version is None or mutation_version > version:                            
-                        version = mutation_version                
-        if version is not None: 
-            existing_objects.append(ObjectAtEpoch(object_id=object_id, version=version))                                        
+        if obj.created is not None and obj.created <= epoch:
+            version = obj.version
+        # In the case of a transferred object, we may not have information on when the object was created
+        if obj.mutated is not None:
+            for mutation_epoch, mutation_version in obj.mutated:
+                if mutation_epoch <= epoch:
+                    if version is None or mutation_version > version:
+                        version = mutation_version
+        if version is not None:
+            existing_objects.append(ObjectAtEpoch(object_id=object_id, version=version))
     return existing_objects
 
 def chunked_requests(request: List[Any], chunk_size=50):
@@ -303,14 +303,14 @@ def get_validator_id_for_inactive_pool(sui_client: SuiClient, pool_id, sui_syste
     inactive_pools = sui_client.get_dynamic_fields(sui_system_state['inactivePoolsId'])
     print(inactive_pools)
     validator_wrapper = None
-    for item in inactive_pools:        
+    for item in inactive_pools:
         if item['name']['value'] == pool_id:
             validator_wrapper = item['objectId']
             break
-    
+
     if validator_wrapper is None:
         raise Exception(f"Could not find validator wrapper for pool {pool_id}")
-    
+
     validator_wrapper_object = sui_client.get_object(validator_wrapper)
     validator_dynamic_fields_id = validator_wrapper_object['content']['fields']['value']['fields']['inner']['fields']['id']['id']
 
@@ -325,55 +325,49 @@ def calculate_rewards(
         sui_client,
         sui_system_state,
         epoch_validator_event_dict,
-        principal,        
+        principal,
         pool_id,
-        stake_activation_epoch,
+        activation_epoch,
         target_epoch=105,
-        use_previous_epoch=False
         ):
-    
-    if use_previous_epoch:
-        activation_epoch = max(stake_activation_epoch, target_epoch - 1, 0)
-    else:
-        activation_epoch = stake_activation_epoch
-    
+
     validator_id = None
     for validator in sui_system_state['activeValidators']:
         if validator['stakingPoolId'] == pool_id:
-            validator_id = validator['suiAddress']            
+            validator_id = validator['suiAddress']
             break
     if not validator_id:
         validator_id = get_validator_id_for_inactive_pool(sui_client, pool_id, sui_system_state)
         # raise Exception(f"Could not find validator for pool {pool_id} at activation epoch {activation_epoch}, target epoch {target_epoch}")
-            
+
     rate_at_activation_epoch = 1
     rate_at_target_epoch = None
-    
+
     for epoch, validator_address in [(activation_epoch, validator_id), (target_epoch, validator_id)]:
         event = epoch_validator_event_dict.get((str(epoch), validator_address))
-        if event:            
+        if event:
             pool_token_amount = int(event['parsedJson']['pool_token_exchange_rate']['pool_token_amount'])
             sui_amount = int(event['parsedJson']['pool_token_exchange_rate']['sui_amount'])
             rate = pool_token_amount / sui_amount
             if epoch == activation_epoch:
-                rate_at_activation_epoch = rate                
-            if epoch == target_epoch:                        
+                rate_at_activation_epoch = rate
+            if epoch == target_epoch:
                 rate_at_target_epoch = rate
 
             if rate_at_activation_epoch and rate_at_target_epoch:
-                break        
-    
-    rate_at_target_epoch = 1 if rate_at_target_epoch is None else rate_at_target_epoch
-    estimated_reward = max(0, ((rate_at_activation_epoch / rate_at_target_epoch) - 1.0) * principal)   
+                break
 
-    print(activation_epoch, target_epoch, rate_at_activation_epoch, rate_at_target_epoch, principal, estimated_reward, validator_id)         
+    rate_at_target_epoch = 1 if rate_at_target_epoch is None else rate_at_target_epoch
+    estimated_reward = max(0, ((rate_at_activation_epoch / rate_at_target_epoch) - 1.0) * principal)
+
+    print(activation_epoch, target_epoch, rate_at_activation_epoch, rate_at_target_epoch, principal, estimated_reward, validator_id)
 
     return rate_at_activation_epoch, rate_at_target_epoch, estimated_reward, validator_id
 
 def filter_transactions_for_object_type(address, transactions, object_type="0x3::staking_pool::StakedSui") -> List[Transaction]:
     transformed_transactions = [
         Transaction(**transaction) if not isinstance(transaction, Transaction) else transaction for transaction in transactions
-    ]    
+    ]
     object_id_set = set()
     filtered_transactions = []
     for transaction in transformed_transactions:
@@ -381,7 +375,7 @@ def filter_transactions_for_object_type(address, transactions, object_type="0x3:
         for object_change in transaction.object_changes:
             if isinstance(object_change, ObjectChange):
                 if isinstance(object_change.owner, AddressOwner):
-                    if object_change.owner.address_owner == address and object_change.object_type == object_type:                        
+                    if object_change.owner.address_owner == address and object_change.object_type == object_type:
                         object_id_set.add(object_change.object_id)
                         keep_object_changes.append(object_change)
         keep_effects_deleted = []
@@ -389,7 +383,7 @@ def filter_transactions_for_object_type(address, transactions, object_type="0x3:
             for deleted in transaction.effects.deleted:
                 if deleted.object_id in object_id_set:
                     keep_effects_deleted.append(deleted)
-        
+
         if keep_object_changes or keep_effects_deleted:
             effects = transaction.effects.copy(update={
                 "deleted": keep_effects_deleted
@@ -409,7 +403,7 @@ def build_object_history(address, filtered_transactions: List[Transaction], reco
             objs_by_epoch[epoch] = []
         objs = []
         if transaction.effects.deleted:
-            objs.extend([ObjectByEpoch(            
+            objs.extend([ObjectByEpoch(
                 digest = d.digest,
                 object_id = d.object_id,
                 version = d.version,
@@ -420,7 +414,7 @@ def build_object_history(address, filtered_transactions: List[Transaction], reco
                 object_id = o.object_id,
                 version = o.version,
                 status = o.type) for o in transaction.object_changes])
-            
+
         # validation
         unique_object_ids = set()
         for obj in objs:
@@ -435,7 +429,7 @@ def build_object_history(address, filtered_transactions: List[Transaction], reco
         with open(f"{address}_by_epoch.json", "w") as fout:
             objs_by_epoch_dict = {k: [o.dict() for o in v] for k, v in objs_by_epoch.items()}
             json.dump(objs_by_epoch_dict, fout, indent=4, sort_keys=True)
-    
+
     objs_by_obj_id = {}
     for epoch, epoch_objs in objs_by_epoch.items():
         for epoch_obj in epoch_objs:
@@ -463,35 +457,35 @@ def build_object_history(address, filtered_transactions: List[Transaction], reco
                 })
             else:
                 raise Exception(f"Unknown status {epoch_obj.status}")
-    
-    objs_dict = {k: v.dict() for k, v in objs_by_obj_id.items()}    
+
+    objs_dict = {k: v.dict() for k, v in objs_by_obj_id.items()}
     if record:
         with open(f"{address}_by_object_id.json", "w") as fout:
-            json.dump(objs_dict, fout, indent=4, sort_keys=True)    
-    
+            json.dump(objs_dict, fout, indent=4, sort_keys=True)
+
     objs_by_obj_id: Dict[str, OrganizedByObjectId] = {k: OrganizedByObjectId.parse_obj(v) for k, v in objs_dict.items()}
 
     return (objs_by_epoch, objs_by_obj_id)
-   
+
 @timeout(60)
 def get_all_sui_objs_at_epoch(sui_client: SuiClient, address, epoch, record=False) -> Tuple[List[StakedSuiRef], List[SuiCoinRef]]:
-    print("Load EpochInfoV2 events")    
+    print("Load EpochInfoV2 events")
     query_epoch = int(epoch)
     transactions = sui_client.query_transaction_blocks("ToAddress", address)
     if record:
         with open(f"{address}_transactions.json", "w") as f:
-            json.dump(transactions, f, indent=4, sort_keys=True)    
+            json.dump(transactions, f, indent=4, sort_keys=True)
     filtered_transactions = filter_transactions_for_object_type(address, transactions)
     objs_by_epoch, objs_by_obj_id = build_object_history(address, filtered_transactions, record)
     existing_objects = get_existing_objects_at_epoch(objs_by_obj_id, query_epoch)
-    past_objs = sui_client.try_multi_get_past_objects(existing_objects)    
-    
+    past_objs = sui_client.try_multi_get_past_objects(existing_objects)
+
     staked_sui_objs = []
-    for past_obj in past_objs:                
-        staked_sui_fields = past_obj['details']['content']['fields']        
+    for past_obj in past_objs:
+        staked_sui_fields = past_obj['details']['content']['fields']
         stake_activation_epoch = int(staked_sui_fields['stake_activation_epoch'])
-        principal = int(staked_sui_fields['principal'])            
-        pool_id = staked_sui_fields['pool_id']    
+        principal = int(staked_sui_fields['principal'])
+        pool_id = staked_sui_fields['pool_id']
         staked_sui_ref = StakedSuiRef(
             object_id=past_obj['details']['objectId'],
             version=past_obj['details']['version'],
@@ -503,18 +497,18 @@ def get_all_sui_objs_at_epoch(sui_client: SuiClient, address, epoch, record=Fals
             at_epoch=epoch
         )
         staked_sui_objs.append(staked_sui_ref)
-        
+
     transactions.extend(sui_client.query_transaction_blocks("FromAddress", address))
     if record:
         with open(f"{address}_transactions.json", "w") as f:
             json.dump(transactions, f, indent=4, sort_keys=True)
-    filtered_transactions = filter_transactions_for_object_type(address, transactions, "0x2::coin::Coin<0x2::sui::SUI>")        
+    filtered_transactions = filter_transactions_for_object_type(address, transactions, "0x2::coin::Coin<0x2::sui::SUI>")
     objs_by_epoch, objs_by_obj_id = build_object_history(address, filtered_transactions, record)
     existing_objects = get_existing_objects_at_epoch(objs_by_obj_id, query_epoch)
     past_objs = sui_client.try_multi_get_past_objects(existing_objects)
-    
+
     sui_coin_objs = []
-    for past_obj in past_objs:            
+    for past_obj in past_objs:
         sui_coin_objs.append(SuiCoinRef(
             object_id=past_obj['details']['objectId'],
             version=past_obj['details']['version'],
@@ -522,8 +516,8 @@ def get_all_sui_objs_at_epoch(sui_client: SuiClient, address, epoch, record=Fals
             owner=past_obj['details']['owner']['AddressOwner'],
             balance=int(past_obj['details']['content']['fields']['balance']),
             at_epoch=epoch
-        ))                
-    
+        ))
+
     return (staked_sui_objs, sui_coin_objs)
 
 @timeout(60)
@@ -532,21 +526,21 @@ def build_object_history_for_address(sui_client: SuiClient, address, record=Fals
     transactions = sui_client.query_transaction_blocks("ToAddress", address)
     if record:
         with open(f"{address}_transactions.json", "w") as f:
-            json.dump(transactions, f, indent=4, sort_keys=True)    
+            json.dump(transactions, f, indent=4, sort_keys=True)
     filtered_transactions = filter_transactions_for_object_type(address, transactions)
     objs_by_epoch, objs_by_obj_id = build_object_history(address, filtered_transactions, record)
     flattened = [(key, obj) for key, obj_list in objs_by_epoch.items() for obj in obj_list]
 
-    at_epochs = [item[0] for item in flattened]    
+    at_epochs = [item[0] for item in flattened]
     past_objs = sui_client.try_multi_get_past_objects([item[1] for item in flattened])
-    
+
     staked_sui_objs = []
     for idx, past_obj in enumerate(past_objs):
         try:
-            staked_sui_fields = past_obj['details']['content']['fields']        
+            staked_sui_fields = past_obj['details']['content']['fields']
             stake_activation_epoch = int(staked_sui_fields['stake_activation_epoch'])
-            principal = int(staked_sui_fields['principal'])            
-            pool_id = staked_sui_fields['pool_id']    
+            principal = int(staked_sui_fields['principal'])
+            pool_id = staked_sui_fields['pool_id']
             staked_sui_ref = StakedSuiRef(
                 object_id=past_obj['details']['objectId'],
                 version=past_obj['details']['version'],
@@ -560,25 +554,25 @@ def build_object_history_for_address(sui_client: SuiClient, address, record=Fals
             )
         except:
             staked_sui_ref = DeletedObjectRef(
-                object_id=flattened[idx][1].object_id, 
+                object_id=flattened[idx][1].object_id,
                 version=flattened[idx][1].version,
                 at_epoch=at_epochs[idx],
                 owner=address,
                 deleted=True
             )
         staked_sui_objs.append(staked_sui_ref)
-        
+
     transactions.extend(sui_client.query_transaction_blocks("FromAddress", address))
     if record:
         with open(f"{address}_transactions.json", "w") as f:
             json.dump(transactions, f, indent=4, sort_keys=True)
-    filtered_transactions = filter_transactions_for_object_type(address, transactions, "0x2::coin::Coin<0x2::sui::SUI>")        
+    filtered_transactions = filter_transactions_for_object_type(address, transactions, "0x2::coin::Coin<0x2::sui::SUI>")
     objs_by_epoch, objs_by_obj_id = build_object_history(address, filtered_transactions, record)
     flattened = [(key, obj) for key, obj_list in objs_by_epoch.items() for obj in obj_list]
 
     at_epochs = [item[0] for item in flattened]
-    past_objs = sui_client.try_multi_get_past_objects([item[1] for item in flattened])    
-    
+    past_objs = sui_client.try_multi_get_past_objects([item[1] for item in flattened])
+
     sui_coin_objs = []
     for idx, past_obj in enumerate(past_objs):
         try:
@@ -593,28 +587,31 @@ def build_object_history_for_address(sui_client: SuiClient, address, record=Fals
             ))
         except:
             sui_coin_objs.append(DeletedObjectRef(
-                object_id=flattened[idx][1].object_id, 
+                object_id=flattened[idx][1].object_id,
                 version=flattened[idx][1].version,
                 at_epoch=at_epochs[idx],
                 owner=address,
                 deleted=True
-            ))           
-    
+            ))
+
     return (staked_sui_objs, sui_coin_objs)
 
-def calculate_rewards_for_address(sui_client: SuiClient, epoch_validator_event_dict, epoch, staked_sui_objs: List[StakedSuiRef], use_previous_epoch=False) -> Tuple[int, int]:
+def calculate_rewards_for_address(sui_client: SuiClient, epoch_validator_event_dict, start_epoch, end_epoch, staked_sui_objs: List[StakedSuiRef], use_previous_epoch=False) -> Tuple[int, int]:
     staked_sui = 0
     estimated_rewards = 0
     sui_system_state = sui_client.get_sui_system_state()
-    
+
     gather = []
     for staked_sui_obj in staked_sui_objs:
-        result = calculate_rewards(sui_client, sui_system_state, epoch_validator_event_dict, 
+        if use_previous_epoch:
+            activation_epoch = max(staked_sui_obj.stake_activation_epoch, end_epoch - 1, 0)
+        else:
+            activation_epoch = max(staked_sui_obj.stake_activation_epoch, start_epoch)
+        result = calculate_rewards(sui_client, sui_system_state, epoch_validator_event_dict,
                                    staked_sui_obj.principal,
                                    staked_sui_obj.pool_id,
-                                   staked_sui_obj.stake_activation_epoch, # this is probably where the bug is coming from?
-                                   epoch,
-                                   use_previous_epoch)        
+                                   activation_epoch,
+                                   end_epoch)
         gather.append(RewardsForStakedSui(
             objectId=staked_sui_obj.object_id,
             version=staked_sui_obj.version,
@@ -625,14 +622,10 @@ def calculate_rewards_for_address(sui_client: SuiClient, epoch_validator_event_d
             rate_at_target=result[1],
             validator_id=result[3],
             pool_id=staked_sui_obj.pool_id,
-        ))        
+        ))
         print(result[2], "outside")
         estimated_rewards += result[2]
         print(estimated_rewards)
         staked_sui += staked_sui_obj.principal
 
-    with open(f"staked_sui_{epoch}.json", "w") as f:
-        jsonfiable = [item.dict() for item in gather]
-        json.dump(jsonfiable, f, indent=4, sort_keys=True)
-                    
-    return (staked_sui, estimated_rewards)    
+    return (staked_sui, estimated_rewards)

@@ -9,10 +9,12 @@
 
 ## Example usage
 
+NOTE: YOU MUST ALWAYS RUN v3.py TO GET THE LATEST LIQUID AND STAKED SUI!
+
 ```python3
 pip3 install -r requirements.txt
 python3 v3.py --filename test.csv
-python3 sui_tracker_v2.py --end-epoch 130 --filename test.csv
+python3 sui_tracker_v2.py --end-epoch 189 --filename test.csv
 ```
 
 Cumulative, accounting for unstakes

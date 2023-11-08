@@ -31,6 +31,7 @@ with open(csv_file_path, 'r') as file:
 
             for i in range(len(estimated_rewards)):
                 cumulative_rewards[i] = to_float(estimated_rewards[i]) + to_float(cumulative_rewards[max(0, i-1)])
+                
             new_rows[-1].extend(cumulative_rewards)    
             
         # for i, value in enumerate(row[3:], start=3):
