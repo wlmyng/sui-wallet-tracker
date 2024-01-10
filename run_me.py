@@ -6,7 +6,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--rpc-url", type=str, help="RPC URL to use", default="https://fullnode.mainnet.sui.io:443")
     parser.add_argument("--input-filename", type=str, help="Input filename", default="input_addresses.csv")
-    parser.add_argument("--end-epoch", type=int, help="End epoch", default=209)
+    parser.add_argument("--end-epoch", type=int, help="End epoch", default=365)
     parser.add_argument("--output-filename", default="output.csv")
 
     args = parser.parse_args()
